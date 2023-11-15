@@ -1,30 +1,137 @@
 ---
-title: "Mapping 4"
+title: "Mapping Exercise 3"
+subtitle: "North Carolina"
 author: "Joe Endris"
 date: "`r Sys.Date()`"
-output: html_document
+output:
+  html_document:
+    toc: yes
+    toc_float: true
+    collapsed: no
+    smooth_scroll: yes
+    df_print: paged
+  pdf_document: default
+  html_notebook:
+    df_print: paged
+    rows.print: 10
+    theme: cosmo
+    highlight: breezedark
+    number_sections: yes
+    toc: yes
+    toc_float: 
+      collapsed: no
+      smooth_scroll: yes
+editor_options:
+  chunk_output_type: inline
+  mode: gfm
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+```{r libraries, include=FALSE, echo=FALSE}
+library(tidyverse)
+library(readxl)
+library(knitr)
+library(ggplot2)
+library(ggfortify)
+library(plotly)
+library(leaflet)
+library(OpenStreetMap)
+library(mapdata)
+library(rasterVis)
+library(maps)
+library(sf)
+library(cowplot)
+library(dismo)
+library(rdryad)
+library(rgbif)
+library(visreg)
+library(spdep)
 ```
 
-## R Markdown
+```{r setup, include=FALSE, echo=FALSE}
+data <- read.csv('data/childpov18_southfull.csv', 
+                 colClasses = c("character", "character", "character", 
+                                "numeric", "numeric", "numeric", "numeric",
+                                "numeric", "numeric", "numeric", "numeric",
+                                "numeric", "numeric", "numeric", "numeric", 
+                                "numeric", "numeric", "numeric", "numeric",
+                                "numeric", "numeric", "numeric", "numeric",
+                                "numeric", "numeric", "numeric", "numeric", 
+                                "numeric", "numeric", "numeric", "numeric",
+                                "numeric", "numeric", "numeric", "numeric"))
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+#rename column for ease of use in R
+names(data)[names(data)=="X2016.child.poverty"] <- "child.pov.2016"
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+#filter for NC data only
+nc_pov <- data %>% subset(State == "NC")
 
-```{r cars}
-summary(cars)
+#build a mega model to save time typing later
+equation <- child.pov.2016 ~ rural + urban + lnmanufacturing + lnag + 
+  lnretail + lnhealthss + lnconstruction + lnlesshs + 
+  lnunemployment + lnsinglemom + lnblack + lnhispanic + 
+  lnuninsured + lnincome_ratio + lnteenbirth + lnunmarried
+
+#limit sci notation to 5 figures
+options(scipen = 5)
+```
+
+## OLS 
+
+Let's start by looking at an OLS for North Carolina.
+```{r ols, echo=FALSE}
+ols <- lm(equation, data=nc_pov)
+summary(ols)
+```
+<p>&nbsp;</p>
+There are a few variables that stand out as being significant: single mothers, uninsured, and income ratio.
+
+We can look at this in a few plots.
+```{r visreg, echo=FALSE}
+par(mfrow=c(4,4), mar=c(2, 2, 2, 2))
+visreg(ols)
 ```
 
 ## Including Plots
 
 You can also embed plots, for example:
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+```{r contiguity prep, echo=FALSE}
+#library(maps)
+fips <- county.fips
+fips.codes <- separate(data = fips, col = polyname, into = c("state", "county"), sep = ",")
+nc_fips <- subset(fips.codes, state=="north carolina", select=fips)
+
+#library(sf)
+se_shp <- st_read(file.path("data/se_counties.shp"))
+nc_sf <-  se_shp %>% subset(STATE_NAME == "North Carolina")
+
+#library(spdep)
+neighb.data <- poly2nb(nc_sf, queen=T)
+cont.neighb <- nb2listw(neighb.data,style="W", zero.policy = TRUE)
 ```
 
 Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+
+## Did you know...{style="color:red"}
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+```{r, echo=FALSE}
+#knitr::include_graphics("images/phone.jpeg")
+``` 
+  
+**The classic Nokia Tune ringtone is based on Gran Vals by Francisco Tárrega,**
+**and at its peak was played 1.8 billion times a day or over 20,000 times a second**
