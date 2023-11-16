@@ -45,6 +45,7 @@ library(rdryad)
 library(rgbif)
 library(visreg)
 library(spdep)
+library(cleangeo)
 ```
 
 ```{r setup, include=FALSE, echo=FALSE}
@@ -75,6 +76,11 @@ equation <- child.pov.2016 ~ rural + urban + lnmanufacturing + lnag +
 options(scipen = 5)
 ```
 
+```{r flag, echo=FALSE}
+knitr::include_graphics("images/flag.png")
+```
+<p>&nbsp;</p>
+<p>&nbsp;</p>
 ## OLS 
 
 Let's start by looking at an OLS for North Carolina.
@@ -86,16 +92,12 @@ summary(ols)
 There are a few variables that stand out as being significant: single mothers, uninsured, and income ratio.
 
 We can look at this in a few plots.
-```{r visreg, echo=FALSE}
+```{r visreg, echo=FALSE, warning=FALSE, error=FALSE}
 par(mfrow=c(4,4), mar=c(2, 2, 2, 2))
 visreg(ols)
 ```
 
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r contiguity prep, echo=FALSE}
+```{r contiguity prep, echo=FALSE, warning=FALSE, error=FALSE}
 #library(maps)
 fips <- county.fips
 fips.codes <- separate(data = fips, col = polyname, into = c("state", "county"), sep = ",")
@@ -106,32 +108,153 @@ se_shp <- st_read(file.path("data/se_counties.shp"))
 nc_sf <-  se_shp %>% subset(STATE_NAME == "North Carolina")
 
 #library(spdep)
+cleaned <- clgeo_Clean(nc_sf)
 neighb.data <- poly2nb(nc_sf, queen=T)
+
 cont.neighb <- nb2listw(neighb.data,style="W", zero.policy = TRUE)
 ```
+## Moran's correlation and LaGrange multiplier tests
+<p>&nbsp;</p>
+Let's start with the Moran's correlation.
+```{r morans, echo=FALSE}
+lm.morantest(ols, cont.neighb)
+```
+<p>&nbsp;</p>
+And now we can look at the LaGrange multiplier.
+<p>&nbsp;</p>
+```{r lagrange, echo=FALSE}
+lm.LMtests(ols, cont.neighb, test="all")
+```
+<p>&nbsp;</p>
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
 
-<p>&nbsp;</p>
-<p>&nbsp;</p>
-<p>&nbsp;</p>
+And using our handy dandy decision tree, it appears that OLS is the model to use.
 
-## Did you know...{style="color:red"}
-<p>&nbsp;</p>
-<p>&nbsp;</p>
-<p>&nbsp;</p>
-<p>&nbsp;</p>
-<p>&nbsp;</p>
-<p>&nbsp;</p>
-<p>&nbsp;</p>
-<p>&nbsp;</p>
-<p>&nbsp;</p>
-<p>&nbsp;</p>
-<p>&nbsp;</p>
-<p>&nbsp;</p>
-```{r, echo=FALSE}
-#knitr::include_graphics("images/phone.jpeg")
-``` 
-  
-**The classic Nokia Tune ringtone is based on Gran Vals by Francisco Tárrega,**
-**and at its peak was played 1.8 billion times a day or over 20,000 times a second**
+## Spatial regression analysis
+
+```{r spatial regression, echo=FALSE}
+#centroid creation
+nc.xy <- st_centroid(nc_sf)
+colnames(nc.xy) <- c("x","y")
+
+#Create neighbors
+all.dist.k1 <- knn2nb(knearneigh(nc.xy, k=1, longlat = TRUE))
+all.dist.k3 <- knn2nb(knearneigh(nc.xy, k=3, longlat = TRUE))
+all.dist.k5 <- knn2nb(knearneigh(nc.xy, k=5, longlat = TRUE))
+
+#Determine max k distance value to neighbor
+all.max.k1 <- max(unlist(nbdists(all.dist.k1, nc.xy, longlat=TRUE)))
+all.max.k3 <- max(unlist(nbdists(all.dist.k3, nc.xy, longlat=TRUE)))
+all.max.k5 <- max(unlist(nbdists(all.dist.k5, nc.xy, longlat=TRUE)))
+
+#Calculate neighbors based on distance
+all.sp.dist.k1 <- dnearneigh(nc.xy, d1=0, d2=1 * all.max.k1, longlat = TRUE)
+all.sp.dist.k3 <- dnearneigh(nc.xy, d1=0, d2=1 * all.max.k3, longlat = TRUE)
+all.sp.dist.k5 <- dnearneigh(nc.xy, d1=0, d2=1 * all.max.k5, longlat = TRUE)
+
+#Create neighbor list
+all.dist.neighb.k1 <- nb2listw(all.sp.dist.k1,style="W", zero.policy = TRUE)
+all.dist.neighb.k3 <- nb2listw(all.sp.dist.k3,style="W", zero.policy = TRUE)
+all.dist.neighb.k5 <- nb2listw(all.sp.dist.k5,style="W", zero.policy = TRUE)
+```
+## Distance lag model
+
+```{r distance lag, echo=FALSE}
+all.dist.lag.k1 <- spatialreg::lagsarlm(equation, data = nc_pov, listw = all.dist.neighb.k1)
+all.dist.lag.k3 <- spatialreg::lagsarlm(equation, data = nc_pov, listw = all.dist.neighb.k3)
+all.dist.lag.k5 <- spatialreg::lagsarlm(equation, data = nc_pov, listw = all.dist.neighb.k5)
+
+all.dist.lag.k1 <- spatialreg::lagsarlm(equation, data = nc_pov, listw = all.dist.neighb.k1)
+all.dist.lag.k3 <- spatialreg::lagsarlm(equation, data = nc_pov, listw = all.dist.neighb.k3)
+all.dist.lag.k5 <- spatialreg::lagsarlm(equation, data = nc_pov, listw = all.dist.neighb.k5)
+
+summary(all.dist.lag.k1, Nagelkerke = TRUE)
+
+all.dist.err.k1 <- spatialreg::errorsarlm(equation, data = nc_pov, listw = all.dist.neighb.k1)
+all.dist.err.k3 <- spatialreg::errorsarlm(equation, data = nc_pov, listw = all.dist.neighb.k3)
+all.dist.err.k5 <- spatialreg::errorsarlm(equation, data = nc_pov, listw = all.dist.neighb.k5)
+
+summary(all.dist.err.k1, Nagelkerke = TRUE)
+
+dist.err.data <- summary(all.dist.err.k1, correlation=TRUE, Nagelkerke = TRUE)
+
+dist.err.output <- cbind.data.frame(nc_pov$FIPS,
+                                    dist.err.data$fitted.values, 
+                                    dist.err.data$residual, 
+                                    nc_pov$child.pov.2016, 
+                                    nc_pov$lnsinglemom, 
+                                    nc_pov$lnuninsured, 
+                                    nc_pov$lnlesshs, 
+                                    nc_pov$lnincome_ratio,
+                                    stringsAsFactors = FALSE)
+```
+
+## Distance error model
+```{r distance error, echo=FALSE}
+all.dist.err.k1 <- spatialreg::errorsarlm(equation, data = nc_pov, listw = all.dist.neighb.k1)
+all.dist.err.k3 <- spatialreg::errorsarlm(equation, data = nc_pov, listw = all.dist.neighb.k3)
+all.dist.err.k5 <- spatialreg::errorsarlm(equation, data = nc_pov, listw = all.dist.neighb.k5)
+
+summary(all.dist.err.k1, Nagelkerke = TRUE)
+```
+
+## And now the part everyone has been looking forward to...MAPS!
+```{r map prep, echo=FALSE}
+dist.err.data <- summary(all.dist.err.k1, correlation=TRUE, Nagelkerke = TRUE)
+
+dist.err.output <- cbind.data.frame(nc_pov$FIPS,
+                                    dist.err.data$fitted.values, 
+                                    dist.err.data$residual, 
+                                    nc_pov$lnsinglemom, 
+                                    nc_pov$lnuninsured, 
+                                    nc_pov$lnincome_ratio,
+                                    stringsAsFactors = FALSE)
+
+#Renaming columns
+colnames(dist.err.output) <- c("fips","fitted","resid","single_mom","uninsured","income_ratio")
+
+nc_fortify <- fortify(nc_sp)
+
+nc_poly <- merge(x = nc_fortify, y = dist.err.output, 
+                 by.x = "id", by.y = "fips", all = TRUE)
+
+bivariate_data <- bi_class(nc_poly, x = income_ratio, y = uninsured, 
+                           dim = 3, style = "quantile")
+
+legend <- bi_legend(pal = "magma",
+                    dim = 3,
+                    xlab = "Income ratio",
+                    ylab = "Unisured",
+                    size = 6)
+
+world <- map_data("world")
+states <- map_data("state")
+southern_states <- subset(states, region %in% 
+                            c("texas", "arkansas", "louisiana", "mississippi", 
+                              "alabama", "georgia", "florida", "north carolina",
+                              "south carolina", "tennessee", "oklahoma", 
+                              "kentucky", "west virginia", "virginia", 
+                              "maryland", "delaware", "district of columbia"))
+```
+
+```{r map, echo=FALSE}
+nc_map <- ggplot() + 
+  geom_polygon(data = world, aes(x=long,y=lat, group=group), fill = "gray95", color = "white") +
+  geom_polygon(data = states, aes(x=long,y=lat, group=group), fill = "gray", color = "white") +
+  geom_polygon(data = southern_states, aes(x=long,y=lat, group=group), fill = NA, size = 0.01, color = "white") +  
+  geom_polygon(data = bivariate_data, aes(x=long, y=lat, group=group, fill = bi_class), color = "grey50", show.legend = FALSE) + 
+  bi_scale_fill(pal = "magma", dim = 3) +
+  coord_map("conic", lat0 = 30, xlim=c(-107,-92), ylim=c(25,37)) +
+  theme_void() + theme(legend.title.align=0.5) +
+  theme(panel.background = element_rect(fill = 'cyan2'),
+        panel.grid.major = element_line(colour = NA)) +
+  labs(x = "Longitude", y = "Latitude", fill = "uninsured", 
+       title = "Bivariate Map of Income Ratio and Uninsured Households") +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5))
+
+
+nc_map
+```
+
+
+
