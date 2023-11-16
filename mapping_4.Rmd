@@ -46,6 +46,7 @@ library(rgbif)
 library(visreg)
 library(spdep)
 library(cleangeo)
+library(biscale)
 ```
 
 ```{r setup, include=FALSE, echo=FALSE}
@@ -132,10 +133,10 @@ And using our handy dandy decision tree, it appears that OLS is the model to use
 
 ## Spatial regression analysis
 
-```{r spatial regression, echo=FALSE}
+```{r spatial regression, echo=FALSE, warning=FALSE}
 #centroid creation
 nc.xy <- st_centroid(nc_sf)
-colnames(nc.xy) <- c("x","y")
+#colnames(nc.xy) <- c("x","y")
 
 #Create neighbors
 all.dist.k1 <- knn2nb(knearneigh(nc.xy, k=1, longlat = TRUE))
@@ -164,12 +165,11 @@ all.dist.lag.k1 <- spatialreg::lagsarlm(equation, data = nc_pov, listw = all.dis
 all.dist.lag.k3 <- spatialreg::lagsarlm(equation, data = nc_pov, listw = all.dist.neighb.k3)
 all.dist.lag.k5 <- spatialreg::lagsarlm(equation, data = nc_pov, listw = all.dist.neighb.k5)
 
-all.dist.lag.k1 <- spatialreg::lagsarlm(equation, data = nc_pov, listw = all.dist.neighb.k1)
-all.dist.lag.k3 <- spatialreg::lagsarlm(equation, data = nc_pov, listw = all.dist.neighb.k3)
-all.dist.lag.k5 <- spatialreg::lagsarlm(equation, data = nc_pov, listw = all.dist.neighb.k5)
-
 summary(all.dist.lag.k1, Nagelkerke = TRUE)
+```
 
+## Distance error model
+```{r distance error, echo=FALSE}
 all.dist.err.k1 <- spatialreg::errorsarlm(equation, data = nc_pov, listw = all.dist.neighb.k1)
 all.dist.err.k3 <- spatialreg::errorsarlm(equation, data = nc_pov, listw = all.dist.neighb.k3)
 all.dist.err.k5 <- spatialreg::errorsarlm(equation, data = nc_pov, listw = all.dist.neighb.k5)
@@ -181,25 +181,14 @@ dist.err.data <- summary(all.dist.err.k1, correlation=TRUE, Nagelkerke = TRUE)
 dist.err.output <- cbind.data.frame(nc_pov$FIPS,
                                     dist.err.data$fitted.values, 
                                     dist.err.data$residual, 
-                                    nc_pov$child.pov.2016, 
                                     nc_pov$lnsinglemom, 
-                                    nc_pov$lnuninsured, 
-                                    nc_pov$lnlesshs, 
+                                    nc_pov$lnuninsured,
                                     nc_pov$lnincome_ratio,
                                     stringsAsFactors = FALSE)
 ```
 
-## Distance error model
-```{r distance error, echo=FALSE}
-all.dist.err.k1 <- spatialreg::errorsarlm(equation, data = nc_pov, listw = all.dist.neighb.k1)
-all.dist.err.k3 <- spatialreg::errorsarlm(equation, data = nc_pov, listw = all.dist.neighb.k3)
-all.dist.err.k5 <- spatialreg::errorsarlm(equation, data = nc_pov, listw = all.dist.neighb.k5)
-
-summary(all.dist.err.k1, Nagelkerke = TRUE)
-```
-
 ## And now the part everyone has been looking forward to...MAPS!
-```{r map prep, echo=FALSE}
+```{r map prep, echo=FALSE, warning=FALSE}
 dist.err.data <- summary(all.dist.err.k1, correlation=TRUE, Nagelkerke = TRUE)
 
 dist.err.output <- cbind.data.frame(nc_pov$FIPS,
@@ -213,18 +202,18 @@ dist.err.output <- cbind.data.frame(nc_pov$FIPS,
 #Renaming columns
 colnames(dist.err.output) <- c("fips","fitted","resid","single_mom","uninsured","income_ratio")
 
-nc_fortify <- fortify(nc_sp)
+nc_fortify <- fortify(nc_sf)
 
-nc_poly <- merge(x = nc_fortify, y = dist.err.output, 
-                 by.x = "id", by.y = "fips", all = TRUE)
+nc_poly <- merge(x = nc_sf, y = dist.err.output, 
+                 by.x = "FIPS", by.y = "fips", all = TRUE)
 
-bivariate_data <- bi_class(nc_poly, x = income_ratio, y = uninsured, 
-                           dim = 3, style = "quantile")
 
-legend <- bi_legend(pal = "magma",
+bivariate_data <- bi_class(nc_poly, x = uninsured, y = income_ratio, dim = 3, style = "quantile")
+
+legend <- bi_legend(pal = "PurpleOr",
                     dim = 3,
-                    xlab = "Income ratio",
-                    ylab = "Unisured",
+                    xlab = "Income Ratio",
+                    ylab = "Unisured Households",
                     size = 6)
 
 world <- map_data("world")
@@ -237,23 +226,64 @@ southern_states <- subset(states, region %in%
                               "maryland", "delaware", "district of columbia"))
 ```
 
-```{r map, echo=FALSE}
+```{r map, echo=FALSE, warning=FALSE}
 nc_map <- ggplot() + 
   geom_polygon(data = world, aes(x=long,y=lat, group=group), fill = "gray95", color = "white") +
   geom_polygon(data = states, aes(x=long,y=lat, group=group), fill = "gray", color = "white") +
   geom_polygon(data = southern_states, aes(x=long,y=lat, group=group), fill = NA, size = 0.01, color = "white") +  
-  geom_polygon(data = bivariate_data, aes(x=long, y=lat, group=group, fill = bi_class), color = "grey50", show.legend = FALSE) + 
-  bi_scale_fill(pal = "magma", dim = 3) +
-  coord_map("conic", lat0 = 30, xlim=c(-107,-92), ylim=c(25,37)) +
+  geom_sf(data = bivariate_data, aes(fill = bi_class), color = "grey50", show.legend = FALSE) + 
+  bi_scale_fill(pal = "PurpleOr", dim = 3) +
+  coord_sf(crs = 4326, xlim=c(-84.3,-74), ylim=c(33.5, 36.6)) +
   theme_void() + theme(legend.title.align=0.5) +
-  theme(panel.background = element_rect(fill = 'cyan2'),
+  theme(panel.background = element_rect(fill = 'darkturquoise'),
         panel.grid.major = element_line(colour = NA)) +
   labs(x = "Longitude", y = "Latitude", fill = "uninsured", 
        title = "Bivariate Map of Income Ratio and Uninsured Households") +
   theme(plot.title = element_text(face = "bold", hjust = 0.5))
 
 
-nc_map
+#library(cowplot)
+final_map <- ggdraw() +
+  draw_plot(nc_map, 0, 0, 1, 1) +
+  draw_plot(legend, 0.75, 0.22, 0.25, 0.25)
+final_map
+```
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+## And a double dose of did you know...{style="color:red"}
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+```{r, echo=FALSE}
+#knitr::include_graphics("images/phone.jpeg")
+``` 
+  
+**Vexillologically speaking, Illinois is a case study in what not to do,**
+<p>&nbsp;</p>
+```{r illinois, echo=FALSE}
+knitr::include_graphics("images/illinois.png")
+``` 
+<p>&nbsp;</p>
+**and what to do**
+
+```{r chicago, echo=FALSE}
+knitr::include_graphics("images/chicago.png")
+``` 
+
+**This year is the 50th anniversary of hip-hop**
+**and Run-DMC's Rock Box was the first hip-hop song on MTV.**
+```{r rundmc, echo=FALSE}
+knitr::include_graphics("images/rundmc.jpeg", dpi=300)
 ```
 
 
